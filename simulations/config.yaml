@@ -1,0 +1,56 @@
+api:
+  prediction_url: "http://localhost:8000/predict"
+  health_url: "http://localhost:8000/health"
+  evidently_capture_url: "http://localhost:8001/capture"
+  payload_format: "dict"   # 👈 QUAN TRỌNG
+
+model:
+  name: credit-card-fraud
+  version: "1.0.0"
+
+dataset:
+  path: "C:/Users/ManhAn/Downloads/ml-monitoring/ml-monitoring/data/creditcard.csv"
+  target_column: "Class"
+  feature_columns:
+    - Time
+    - V1
+    - V2
+    - V3
+    - V4
+    - V5
+    - V6
+    - V7
+    - V8
+    - V9
+    - V10
+    - V11
+    - V12
+    - V13
+    - V14
+    - V15
+    - V16
+    - V17
+    - V18
+    - V19
+    - V20
+    - V21
+    - V22
+    - V23
+    - V24
+    - V25
+    - V26
+    - V27
+    - V28
+    - Amount
+
+scenarios:
+  normal:
+    drift_multiplier: 1.0
+  moderate_drift:
+    drift_multiplier: 1.5
+    noise_level: 0.2
+    affected_features: 5
+  severe_drift:
+    drift_multiplier: 2.0
+    noise_level: 0.4
+    affected_features: 10
