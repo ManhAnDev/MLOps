@@ -1,166 +1,76 @@
-"""
-============================================
-TRAIN & REGISTER MODEL TO MLFLOW
-============================================
-
-This script:
-1. Trains a simple model
-2. Logs to MLFlow
-3. Registers to MLFlow Model Registry
-4. Promotes to Production stage
-"""
-
+import pandas as pd
 import mlflow
 import mlflow.sklearn
-from sklearn.datasets import load_wine
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score
+from mlflow.models.signature import infer_signature
+from mlflow.tracking import MlflowClient
 import os
 
-# ============================================
-# CONFIGURATION
-# ============================================
+# Config
+MODEL_NAME = "creditcard_model"
+EXPERIMENT_NAME = "creditcard_training"
 
-MLFLOW_TRACKING_URI = 'http://localhost:5000'
-MODEL_NAME = "wine_quality_model"
-EXPERIMENT_NAME = "wine_quality_experiment"
-
-# Configure MinIO S3 for artifacts
-os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://localhost:9000'
-os.environ['AWS_ACCESS_KEY_ID'] = 'minio'
-os.environ['AWS_SECRET_ACCESS_KEY'] = 'minio123'
-os.environ['MLFLOW_S3_IGNORE_TLS'] = 'true'
-
-print(f"🔧 MLFlow Tracking URI: {MLFLOW_TRACKING_URI}")
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-
-# ============================================
-# LOAD DATA
-# ============================================
-
-print("📊 Loading wine dataset...")
-wine = load_wine()
-X, y = wine.data, wine.target
-
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-print(f"   Training samples: {len(X_train)}")
-print(f"   Test samples: {len(X_test)}")
-
-# ============================================
-# TRAIN MODEL
-# ============================================
-
-print("\n🎯 Training model...")
-
-# Set experiment
+mlflow.set_tracking_uri("http://mlflow:5000")
 mlflow.set_experiment(EXPERIMENT_NAME)
 
-print(f"🎯 Experiment: {EXPERIMENT_NAME}")
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://minio:9000"
+os.environ["AWS_ACCESS_KEY_ID"] = "minio"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "minio123"
 
-# Start MLFlow run
-with mlflow.start_run(run_name="RandomForest_v1") as run:
-    
-    # Hyperparameters
-    params = {
-        'n_estimators': 100,
-        'max_depth': 10,
-        'min_samples_split': 2,
-        'random_state': 42
-    }
-    
-    # Train model
-    model = RandomForestClassifier(**params)
-    model.fit(X_train, y_train)
-    
-    # Predictions
-    y_pred = model.predict(X_test)
-    y_pred_proba = model.predict_proba(X_test)
-    
-    # Metrics
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, average='weighted')
-    precision = precision_score(y_test, y_pred, average='weighted')
-    recall = recall_score(y_test, y_pred, average='weighted')
-    
-    print(f"\n📈 Model Performance:")
-    print(f"   Accuracy:  {accuracy:.4f}")
-    print(f"   F1 Score:  {f1:.4f}")
-    print(f"   Precision: {precision:.4f}")
-    print(f"   Recall:    {recall:.4f}")
-    
-    # Log parameters
-    mlflow.log_params(params)
-    
-    # Log metrics
-    mlflow.log_metrics({
-        'accuracy': accuracy,
-        'f1_score': f1,
-        'precision': precision,
-        'recall': recall
+# Load data
+df = pd.read_csv("data/creditcard.csv")
+X = df.drop(columns=["Class"])
+y = df["Class"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Train
+model = RandomForestClassifier(
+    n_estimators=100,
+    random_state=42,
+    class_weight="balanced"
+)
+model.fit(X_train, y_train)
+
+# Evaluate
+preds = model.predict(X_test)
+f1 = f1_score(y_test, preds)
+
+# Log MLflow
+with mlflow.start_run() as run:
+    mlflow.log_metric("f1", f1)
+    mlflow.log_params({
+        "n_estimators": 100,
+        "class_weight": "balanced"
     })
-    
-    # Log model
+
     mlflow.sklearn.log_model(
         model,
         artifact_path="model",
         registered_model_name=MODEL_NAME,
-        signature=mlflow.models.infer_signature(X_train, y_pred),
-        input_example=X_train[:5]
+        signature=infer_signature(X_train, model.predict(X_train))
     )
-    
+
     run_id = run.info.run_id
-    print(f"\n Model logged to MLFlow!")
-    print(f"   Run ID: {run_id}")
 
-# ============================================
-# PROMOTE TO PRODUCTION
-# ============================================
+# Move model to STAGING
+client = MlflowClient()
+versions = client.search_model_versions(f"name='{MODEL_NAME}'")
+latest = sorted(
+    [v for v in versions if v.run_id == run_id],
+    key=lambda x: int(x.version),
+    reverse=True
+)[0]
 
-print("\n Promoting model to Production stage...")
+client.transition_model_version_stage(
+    name=MODEL_NAME,
+    version=latest.version,
+    stage="Staging",
+    archive_existing_versions=False
+)
 
-client = mlflow.tracking.MlflowClient()
-
-# Get latest version
-model_versions = client.get_latest_versions(MODEL_NAME, stages=["None"])
-
-if model_versions:
-    latest_version = model_versions[0].version
-    
-    # Transition to Production
-    client.transition_model_version_stage(
-        name=MODEL_NAME,
-        version=latest_version,
-        stage="Production",
-        archive_existing_versions=True  # Archive old production versions
-    )
-    
-    print(f"✅ Model promoted to Production!")
-    print(f"   Model: {MODEL_NAME}")
-    print(f"   Version: {latest_version}")
-    print(f"   Stage: Production")
-else:
-    print("❌ No model versions found")
-
-# ============================================
-# SUMMARY
-# ============================================
-
-print("\n" + "="*50)
-print(" SETUP COMPLETE!")
-print("="*50)
-print(f"\n Next steps:")
-print(f"   1. Start API: docker-compose up -d api")
-print(f"   2. Test API: curl http://localhost:8000/health")
-print(f"   3. Make prediction: curl -X POST http://localhost:8000/predict \\")
-print(f"      -H 'Content-Type: application/json' \\")
-print(f"      -d '{{'features': {X_test[0].tolist()}}}'")
-print(f"   4. View metrics: http://localhost:8000/metrics")
-print(f"   5. View Grafana: http://localhost:3000")
-print(f"   6. View MLFlow: http://localhost:5000")
-print()
+print(f"Registered {MODEL_NAME} v{latest.version} to STAGING (f1={f1:.4f})")
