@@ -272,6 +272,21 @@ services:
   #   networks:
   #     - monitoring
 
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    container_name: ${USER}_monitoring-jenkins
+    ports:
+      - "8088:8080"   # Jenkins UI
+      - "50000:50000" # Agent port (optional)
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - monitoring
+    restart: unless-stopped
+
 # ==========================================
 # VOLUMES
 # ==========================================
@@ -300,6 +315,11 @@ volumes:
   evidently_reference:
     driver: local
     name: ${USER}_monitoring-evidently_reference
+  jenkins_home:
+    driver: local
+    name: ${USER}_monitoring-jenkins_home
+
+
 
 networks:
   monitoring:
