@@ -28,14 +28,6 @@ Simulator → API → Evidently → Prometheus → Grafana
 ```bash
 docker-compose up -d postgres minio minio-init mlflow prometheus grafana
 ```
-
-Health check:
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8001/health
-```
-
 ---
 
 ## Train Model
@@ -72,7 +64,7 @@ python scripts/training.py
 ```
 
 **What this script does:**
-1. Trains a RandomForest classifier on wine dataset
+1. Trains a RandomForest classifier on credit card dataset
 2. Logs model, parameters, and metrics to MLFlow
 3. Registers model in MLFlow Model Registry
 4. Promotes model to **Production** stage
